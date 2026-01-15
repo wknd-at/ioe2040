@@ -29,30 +29,58 @@ def extract_entries(html: str):
     soup = BeautifulSoup(html, "lxml")
 
     entries = []
+    headings = soup.find_all("h3")
 
-    # Primary strategy: find headings that represent supporter names
-    for h in soup.find_all(["h3"]):
+    for i, h in enumerate(headings):
         name = h.get_text(" ", strip=True)
         if not name:
             continue
 
-        # Try to find an image close to the heading (often immediately before in these builder layouts)
-        logo_url = None
-        prev_img = h.find_previous("img")
-        if prev_img and prev_img.get("src"):
-            logo_url = urljoin(BASE, prev_img["src"])
+        # Alles zwischen diesem h3 und dem nächsten h3 als "Block"
+        block_nodes = []
+        node = h.next_sibling
+        while node is not None and not (getattr(node, "name", None) == "h3"):
+            block_nodes.append(node)
+            node = node.next_sibling
 
-        # Find "Branche:" text after the heading
+        block_soup = BeautifulSoup("", "lxml")
+        wrapper = block_soup.new_tag("div")
+        for n in block_nodes:
+            # NavigableString oder Tag – beides anhängen
+            try:
+                wrapper.append(n)
+            except Exception:
+                pass
+        block_soup.append(wrapper)
+
+        # Text aus Block (normalisiert, inkl. NBSP)
+        block_text = wrapper.get_text(" ", strip=True).replace("\xa0", " ")
+        # Branche via Regex aus dem Block-Text
         branche = None
-        nxt_text = h.find_next(string=re.compile(r"Branche\s*:", re.IGNORECASE))
-        if nxt_text:
-            branche = re.sub(r"^\s*Branche\s*:\s*", "", nxt_text.strip(), flags=re.IGNORECASE)
+        m = re.search(r"\bBranche\s*:\s*(.+?)(?=$)", block_text, flags=re.IGNORECASE)
+        if m:
+            # manchmal hängt noch URL/sonstiges im Text; wir schneiden bei "http" ab
+            val = m.group(1).strip()
+            val = re.split(r"\shttps?://", val, maxsplit=1)[0].strip()
+            branche = val or None
 
-        # Next link after heading (supporter website)
+        # Link: erster externer http(s)-Link im Block
         link = None
-        a = h.find_next("a", href=True)
-        if a:
-            link = a["href"].strip()
+        for a in wrapper.find_all("a", href=True):
+            href = a["href"].strip()
+            if href.startswith("http://") or href.startswith("https://"):
+                link = href
+                break
+
+        # Logo: erstes Bild im Block (falls keines, fallback: img kurz vor h3)
+        logo_url = None
+        img = wrapper.find("img")
+        if img and img.get("src"):
+            logo_url = urljoin(BASE, img["src"])
+        else:
+            prev_img = h.find_previous("img")
+            if prev_img and prev_img.get("src"):
+                logo_url = urljoin(BASE, prev_img["src"])
 
         entries.append({
             "name": name,
@@ -62,17 +90,18 @@ def extract_entries(html: str):
             "sort": normalize_sort_key(name),
         })
 
-    # Deduplicate by name+url (basic)
+    # Dedup
     seen = set()
     uniq = []
     for e in entries:
-        key = (e["name"], e["url"])
+        key = (e["name"], e["url"], e["logo"])
         if key in seen:
             continue
         seen.add(key)
         uniq.append(e)
 
     return sorted(uniq, key=lambda x: x["sort"])
+
 
 def build_html(entries):
     cards = []
