@@ -115,7 +115,7 @@ def build_html(entries):
 </head>
 <body>
   <h1>Partner & Unterstützer (alphabetisch)</h1>
-  <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p>
+  <!-- <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p> -->
 
   <div class="grid">
     {''.join(cards)}
