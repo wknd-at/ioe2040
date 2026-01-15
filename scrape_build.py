@@ -149,9 +149,16 @@ def build_html(entries):
 <title>Unterstützer – alphabetisch</title>
 <meta name="robots" content="noindex,nofollow">
 <style>
+body,html {{
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* WICHTIG */
+}}
 body {{
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  margin: 24px;
+}}
+#ioe2040Root {{
+  padding: 24px;
 }}
 .grid {{
   display: grid;
