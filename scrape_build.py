@@ -213,7 +213,10 @@ document.getElementById('ts').textContent =
 
 <script>
 (function () {{
-  function sendHeight() {{
+  let lastSent = 0;
+  let scheduled = false;
+
+  function measure() {{
     const d = document.documentElement;
     const b = document.body;
     const h = Math.max(
@@ -221,6 +224,18 @@ document.getElementById('ts').textContent =
       b ? b.scrollHeight : 0,
       b ? b.offsetHeight : 0
     );
+    return h;
+  }}
+
+  function sendHeight() {{
+    scheduled = false;
+    const h = measure();
+
+    // Nur senden, wenn die Änderung "signifikant" ist (z.B. >= 20px)
+    if (Math.abs(h - lastSent) < 20) return;
+
+    lastSent = h;
+
     if (window.parent && window.parent !== window) {{
       window.parent.postMessage(
         {{ type: "ioe2040_iframe_height", height: h }},
@@ -229,21 +244,37 @@ document.getElementById('ts').textContent =
     }}
   }}
 
-  window.addEventListener("load", sendHeight);
-  window.addEventListener("resize", () => setTimeout(sendHeight, 50));
-
-  const mo = new MutationObserver(() => setTimeout(sendHeight, 50));
-  mo.observe(document.documentElement, {{ childList:true, subtree:true }});
-
-  if ("ResizeObserver" in window) {{
-    new ResizeObserver(() => setTimeout(sendHeight, 50))
-      .observe(document.documentElement);
+  function scheduleSend() {{
+    if (scheduled) return;
+    scheduled = true;
+    // Throttle via rAF + kurzer Timeout (stabilisiert Reflow/Fonts)
+    requestAnimationFrame(() => setTimeout(sendHeight, 80));
   }}
 
-  setTimeout(sendHeight, 300);
-  setTimeout(sendHeight, 1200);
+  window.addEventListener("load", scheduleSend);
+  window.addEventListener("resize", scheduleSend);
+
+  // Wenn Bilder laden, nochmal messen
+  const imgs = document.images || [];
+  for (let i = 0; i < imgs.length; i++) {{
+    if (!imgs[i].complete) {{
+      imgs[i].addEventListener("load", scheduleSend, {{ once: true }});
+      imgs[i].addEventListener("error", scheduleSend, {{ once: true }});
+    }}
+  }}
+
+  // Wenn Fonts nachladen (wichtig!), einmal nachziehen
+  if (document.fonts && document.fonts.ready) {{
+    document.fonts.ready.then(scheduleSend);
+  }}
+
+  // Ein paar kontrollierte Nachmessungen, dann Schluss
+  setTimeout(scheduleSend, 300);
+  setTimeout(scheduleSend, 1200);
+  setTimeout(scheduleSend, 2500);
 }})();
 </script>
+
 
 </body>
 </html>
