@@ -172,8 +172,8 @@ body {{
 .logoWrap {{
   height:120px;
   display:flex;
-  align-items:center;
-  justify-content:center;
+  align-items:start;
+  justify-content:start;
   margin-bottom:10px;
 }}
 img {{
@@ -203,7 +203,7 @@ footer {{
 </div>
 
 <footer>
-Stand: <span id="ts"></span> · Partner: <strong>{len(entries)}</strong>
+<!-- Stand: <span id="ts"></span> · Partner: <strong>{len(entries)}</strong> -->
 </footer>
 
 <script>
