@@ -11,9 +11,7 @@ OUT_FILE = "dist/index.html"
 
 
 def normalize_sort_key(name: str) -> str:
-    """
-    Create a stable alphabetic sort key with German-ish handling for umlauts/ß.
-    """
+    """Stable alphabetic sort key with German-ish handling for umlauts/ß."""
     s = name.strip().lower()
     s = (
         s.replace("ä", "ae")
@@ -26,9 +24,7 @@ def normalize_sort_key(name: str) -> str:
 
 
 def fetch_html(url: str) -> str:
-    """
-    Fetch source HTML with a basic UA to reduce blocking.
-    """
+    """Fetch source HTML with a basic UA to reduce blocking."""
     headers = {"User-Agent": "Mozilla/5.0 (supporter-scraper; +github-actions)"}
     r = requests.get(url, headers=headers, timeout=30)
     r.raise_for_status()
@@ -37,17 +33,25 @@ def fetch_html(url: str) -> str:
 
 def extract_entries(html: str):
     """
-    Extract supporter entries by using <h3> headings as anchors.
-    For each h3, walk forward in document order (next_elements) until the next h3.
-    This is robust against Webador's nested container structure (no reliance on next_sibling).
+    Extract supporter entries using <h3> headings as anchors.
+    Walk forward in document order (next_elements) until the next <h3>.
     """
     soup = BeautifulSoup(html, "lxml")
     headings = soup.find_all("h3")
     entries = []
 
     for h in headings:
-        name = h.get_text(" ", strip=True)
+        name = h.get_text(" ", strip=True).replace("\xa0", " ").strip()
         if not name:
+            continue
+
+        # Skip obvious non-partner headings (page sections / CTAs)
+        # (You can extend this list anytime.)
+        skip_titles = {
+            "KONTAKTIEREN SIE UNS WENN SIE UNTERSTÜTZER WERDEN WOLLEN",
+            "ÜBER INITIATIVE ÖSTERREICH 2040",
+        }
+        if name.upper() in skip_titles:
             continue
 
         texts = []
@@ -71,7 +75,7 @@ def extract_entries(html: str):
                 if href.startswith("http://") or href.startswith("https://"):
                     link = href
 
-            # Collect text
+            # Collect text nodes
             if isinstance(el, str):
                 t = el.strip().replace("\xa0", " ")
                 if t:
@@ -97,6 +101,11 @@ def extract_entries(html: str):
             prev_img = h.find_previous("img")
             if prev_img and prev_img.get("src"):
                 logo_url = urljoin(BASE, prev_img["src"])
+
+        # Filter out headings that are not actual supporter cards:
+        # In your layout, real supporters have at least a logo OR a branche OR an external link.
+        if not (logo_url or branche or link):
+            continue
 
         entries.append(
             {
@@ -124,8 +133,8 @@ def extract_entries(html: str):
 def build_html(entries):
     cards = []
     for e in entries:
-        href = e["url"] or "#"
-        logo = e["logo"] or ""
+        href = e.get("url") or "#"
+        logo = e.get("logo") or ""
         branche = f"Branche: {e['branche']}" if e.get("branche") else ""
 
         cards.append(
@@ -134,8 +143,7 @@ def build_html(entries):
           <div class="logoWrap">
             <img src="{logo}" alt="{e['name']}" loading="lazy" decoding="async">
           </div>
-          <div class="name">{e['name տես the text above']}
-          </div>
+          <div class="name">{e['name']}</div>
           <div class="meta">{branche}</div>
         </a>
         """
@@ -166,14 +174,14 @@ def build_html(entries):
 </head>
 <body>
   <h1>Partner & Unterstützer (alphabetisch)</h1>
-  <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p>
+ <!-- <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p> -->
 
   <div class="grid">
     {''.join(cards)}
   </div>
 
   <footer>
-    Quelle: <code>{SOURCE_URL}</code>
+    Stand: <span id="ts"></span>. Partner: <code>{len(entries)}</code>
   </footer>
 
   <script>
@@ -187,7 +195,6 @@ def build_html(entries):
 
 def ensure_dist():
     import os
-
     os.makedirs(OUT_DIR, exist_ok=True)
 
 
