@@ -18,9 +18,9 @@ def normalize_sort_key(name: str) -> str:
     s = name.strip().lower()
     s = (
         s.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("ß", "ss")
+         .replace("ö", "oe")
+         .replace("ü", "ue")
+         .replace("ß", "ss")
     )
     return re.sub(r"\s+", " ", s)
 
@@ -140,6 +140,7 @@ def build_html(entries):
         </a>
         """)
 
+    # NOTE: We measure ONLY #ioe2040Root (content wrapper) to prevent infinite height growth loops in Chrome.
     return f"""<!doctype html>
 <html lang="de">
 <head>
@@ -198,44 +199,41 @@ footer {{
 </head>
 <body>
 
-<div class="grid">
-{''.join(cards)}
+<div id="ioe2040Root">
+  <div class="grid">
+    {''.join(cards)}
+  </div>
+
+  <footer>
+    <!-- Stand: <span id="ts"></span> · Partner: <strong>{len(entries)}</strong> -->
+  </footer>
 </div>
 
-<footer>
-<!-- Stand: <span id="ts"></span> · Partner: <strong>{len(entries)}</strong> -->
-</footer>
-
 <script>
-document.getElementById('ts').textContent =
-  new Date().toLocaleString('de-AT');
+  // If you uncomment the ts span above, this will fill it:
+  const ts = document.getElementById('ts');
+  if (ts) ts.textContent = new Date().toLocaleString('de-AT');
 </script>
 
 <script>
 (function () {{
-  let lastSent = 0;
-  let scheduled = false;
+  const root = document.getElementById("ioe2040Root");
+  if (!root) return;
 
-  function measure() {{
-    const d = document.documentElement;
-    const b = document.body;
-    const h = Math.max(
-      d.scrollHeight, d.offsetHeight, d.clientHeight,
-      b ? b.scrollHeight : 0,
-      b ? b.offsetHeight : 0
-    );
-    return h;
+  let last = 0;
+  let stableCount = 0;
+  let ticks = 0;
+
+  const MAX_TICKS = 40;       // ~8s at 200ms
+  const THRESHOLD = 2;        // px: treat as stable
+  const SEND_THRESHOLD = 10;  // px: only send if change is meaningful
+
+  function measureRootHeight() {{
+    const rect = root.getBoundingClientRect();
+    return Math.ceil(rect.height);
   }}
 
-  function sendHeight() {{
-    scheduled = false;
-    const h = measure();
-
-    // Nur senden, wenn die Änderung "signifikant" ist (z.B. >= 20px)
-    if (Math.abs(h - lastSent) < 20) return;
-
-    lastSent = h;
-
+  function post(h) {{
     if (window.parent && window.parent !== window) {{
       window.parent.postMessage(
         {{ type: "ioe2040_iframe_height", height: h }},
@@ -244,37 +242,46 @@ document.getElementById('ts').textContent =
     }}
   }}
 
-  function scheduleSend() {{
-    if (scheduled) return;
-    scheduled = true;
-    // Throttle via rAF + kurzer Timeout (stabilisiert Reflow/Fonts)
-    requestAnimationFrame(() => setTimeout(sendHeight, 80));
-  }}
+  function step() {{
+    ticks++;
+    const h = measureRootHeight();
 
-  window.addEventListener("load", scheduleSend);
-  window.addEventListener("resize", scheduleSend);
+    if (Math.abs(h - last) <= THRESHOLD) {{
+      stableCount++;
+    }} else {{
+      stableCount = 0;
+    }}
 
-  // Wenn Bilder laden, nochmal messen
-  const imgs = document.images || [];
-  for (let i = 0; i < imgs.length; i++) {{
-    if (!imgs[i].complete) {{
-      imgs[i].addEventListener("load", scheduleSend, {{ once: true }});
-      imgs[i].addEventListener("error", scheduleSend, {{ once: true }});
+    if (Math.abs(h - last) >= SEND_THRESHOLD) {{
+      post(h);
+    }}
+
+    last = h;
+
+    if (stableCount >= 3 || ticks >= MAX_TICKS) {{
+      clearInterval(timer);
     }}
   }}
 
-  // Wenn Fonts nachladen (wichtig!), einmal nachziehen
-  if (document.fonts && document.fonts.ready) {{
-    document.fonts.ready.then(scheduleSend);
+  // Start now + then poll while layout settles (images/fonts)
+  step();
+  const timer = setInterval(step, 200);
+
+  // Nudge on image load
+  const imgs = document.images || [];
+  for (let i = 0; i < imgs.length; i++) {{
+    if (!imgs[i].complete) {{
+      imgs[i].addEventListener("load", step, {{ once: true }});
+      imgs[i].addEventListener("error", step, {{ once: true }});
+    }}
   }}
 
-  // Ein paar kontrollierte Nachmessungen, dann Schluss
-  setTimeout(scheduleSend, 300);
-  setTimeout(scheduleSend, 1200);
-  setTimeout(scheduleSend, 2500);
+  // Nudge when fonts are ready
+  if (document.fonts && document.fonts.ready) {{
+    document.fonts.ready.then(step);
+  }}
 }})();
 </script>
-
 
 </body>
 </html>
