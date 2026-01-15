@@ -190,52 +190,62 @@ def build_html(entries):
   </script>
   
   <script>
-(function () {
-  const TARGET_ORIGIN = "https://www.initiativeoesterreich2040.at"; // optional, kann auch "*" sein
-  const sendHeight = () => {
-    // Nimm die größtmögliche Höhe
+(function () {{
+  function sendHeight() {{
     const doc = document.documentElement;
     const body = document.body;
+
     const height = Math.max(
-      doc.scrollHeight, doc.offsetHeight, doc.clientHeight,
+      doc.scrollHeight,
+      doc.offsetHeight,
+      doc.clientHeight,
       body ? body.scrollHeight : 0,
       body ? body.offsetHeight : 0
     );
 
-    // Sende an Parent (Webador)
-    if (window.parent && window.parent !== window) {
+    if (window.parent && window.parent !== window) {{
       window.parent.postMessage(
-        { type: "ioe2040_iframe_height", height: height },
-        "*" // wenn du es strenger willst: setze hier exakt deine Webador-Domain
+        {{ type: "ioe2040_iframe_height", height: height }},
+        "*"
       );
-    }
-  };
+    }}
+  }}
 
-  // Sende sofort, nach Load, und bei Layout-Änderungen
   window.addEventListener("load", sendHeight);
-  window.addEventListener("resize", () => setTimeout(sendHeight, 50));
+  window.addEventListener("resize", function () {{
+    setTimeout(sendHeight, 50);
+  }});
 
-  // Beobachte DOM-Änderungen (Bilder laden, Fonts, etc.)
-  const mo = new MutationObserver(() => setTimeout(sendHeight, 50));
-  mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+  const mo = new MutationObserver(function () {{
+    setTimeout(sendHeight, 50);
+  }});
+  mo.observe(document.documentElement, {{
+    childList: true,
+    subtree: true,
+    attributes: true
+  }});
 
-  // Beobachte Größenänderungen
-  if ("ResizeObserver" in window) {
-    const ro = new ResizeObserver(() => setTimeout(sendHeight, 50));
+  if ("ResizeObserver" in window) {{
+    const ro = new ResizeObserver(function () {{
+      setTimeout(sendHeight, 50);
+    }});
     ro.observe(document.documentElement);
-  }
+  }}
 
-  // Images: wenn Logos nachladen, nochmal senden
   const imgs = document.images || [];
-  for (const img of imgs) {
-    if (!img.complete) img.addEventListener("load", () => setTimeout(sendHeight, 50), { once: true });
-  }
+  for (let i = 0; i < imgs.length; i++) {{
+    if (!imgs[i].complete) {{
+      imgs[i].addEventListener("load", function () {{
+        setTimeout(sendHeight, 50);
+      }}, {{ once: true }});
+    }}
+  }}
 
-  // Fallback: nochmal nach kurzer Zeit (Fonts etc.)
   setTimeout(sendHeight, 300);
   setTimeout(sendHeight, 1200);
-})();
+}})();
 </script>
+
 
 </body>
 </html>
