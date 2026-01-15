@@ -9,88 +9,104 @@ BASE = "https://www.initiativeoesterreich2040.at"
 OUT_DIR = "dist"
 OUT_FILE = "dist/index.html"
 
+
 def normalize_sort_key(name: str) -> str:
+    """
+    Create a stable alphabetic sort key with German-ish handling for umlauts/ß.
+    """
     s = name.strip().lower()
-    s = (s.replace("ä", "ae")
-           .replace("ö", "oe")
-           .replace("ü", "ue")
-           .replace("ß", "ss"))
+    s = (
+        s.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+    )
     s = re.sub(r"\s+", " ", s)
     return s
 
+
 def fetch_html(url: str) -> str:
-    # Set a UA to reduce chances of being blocked
+    """
+    Fetch source HTML with a basic UA to reduce blocking.
+    """
     headers = {"User-Agent": "Mozilla/5.0 (supporter-scraper; +github-actions)"}
     r = requests.get(url, headers=headers, timeout=30)
     r.raise_for_status()
     return r.text
 
+
 def extract_entries(html: str):
+    """
+    Extract supporter entries by using <h3> headings as anchors.
+    For each h3, walk forward in document order (next_elements) until the next h3.
+    This is robust against Webador's nested container structure (no reliance on next_sibling).
+    """
     soup = BeautifulSoup(html, "lxml")
     headings = soup.find_all("h3")
     entries = []
 
-    for idx, h in enumerate(headings):
+    for h in headings:
         name = h.get_text(" ", strip=True)
         if not name:
             continue
 
-        # Sammle HTML zwischen diesem h3 und dem nächsten h3, OHNE Nodes zu verschieben
-        parts = []
-        node = h.next_sibling
-        while node is not None and not (getattr(node, "name", None) == "h3"):
-            parts.append(str(node))
-            node = node.next_sibling
-
-        block_html = "".join(parts)
-        block = BeautifulSoup(block_html, "lxml")
-
-        # Logo: erstes img im Block, sonst fallback: img vor dem h3
+        texts = []
         logo_url = None
-        img = block.find("img")
-        if img and img.get("src"):
-            logo_url = urljoin(BASE, img["src"])
-        else:
+        link = None
+
+        # Walk forward in document order until next h3
+        for el in h.next_elements:
+            if getattr(el, "name", None) == "h3":
+                break
+
+            # First image in the block
+            if logo_url is None and getattr(el, "name", None) == "img":
+                src = el.get("src")
+                if src:
+                    logo_url = urljoin(BASE, src)
+
+            # First external link in the block
+            if link is None and getattr(el, "name", None) == "a":
+                href = el.get("href", "").strip()
+                if href.startswith("http://") or href.startswith("https://"):
+                    link = href
+
+            # Collect text
+            if isinstance(el, str):
+                t = el.strip().replace("\xa0", " ")
+                if t:
+                    texts.append(t)
+
+        block_text = " ".join(texts)
+        block_text = re.sub(r"\s+", " ", block_text).strip()
+
+        # Extract "Branche: ..."
+        branche = None
+        m = re.search(
+            r"\bBranche\s*:\s*(.+?)(?=(?:\shttps?://)|$)",
+            block_text,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            val = m.group(1).strip()
+            if val:
+                branche = val
+
+        # Fallback for logo if none found after h3
+        if logo_url is None:
             prev_img = h.find_previous("img")
             if prev_img and prev_img.get("src"):
                 logo_url = urljoin(BASE, prev_img["src"])
 
-        # Link: erster http(s) Link im Block
-        link = None
-        for a in block.find_all("a", href=True):
-            href = a["href"].strip()
-            if href.startswith("http://") or href.startswith("https://"):
-                link = href
-                break
-
-        # Branche: robust über "Eltern-Element", weil Webador oft <strong>Branche:</strong>Value macht
-        branche = None
-
-        # 1) Suche nach Elementen, die "Branche" enthalten, und nimm deren Zeilentext
-        candidates = []
-        for el in block.find_all(["p", "div", "span", "li"]):
-            t = el.get_text(" ", strip=True).replace("\xa0", " ")
-            if re.search(r"\bBranche\b", t, flags=re.IGNORECASE):
-                candidates.append(t)
-
-        # 2) Extrahiere nach "Branche:" aus dem besten Kandidaten
-        for t in candidates:
-            m = re.search(r"\bBranche\s*:\s*(.+)$", t, flags=re.IGNORECASE)
-            if m:
-                val = m.group(1).strip()
-                # falls danach noch URL/Text dranhängt, abschneiden
-                val = re.split(r"\shttps?://", val, maxsplit=1)[0].strip()
-                if val:
-                    branche = val
-                    break
-
-        entries.append({
-            "name": name,
-            "branche": branche,
-            "url": link,
-            "logo": logo_url,
-            "sort": normalize_sort_key(name),
-        })
+        entries.append(
+            {
+                "name": name,
+                "branche": branche,
+                "url": link,
+                "logo": logo_url,
+                "sort": normalize_sort_key(name),
+            }
+        )
 
     # Dedup (Name + url + logo)
     seen = set()
@@ -111,15 +127,19 @@ def build_html(entries):
         href = e["url"] or "#"
         logo = e["logo"] or ""
         branche = f"Branche: {e['branche']}" if e.get("branche") else ""
-        cards.append(f"""
+
+        cards.append(
+            f"""
         <a class="card" href="{href}" target="_blank" rel="noopener">
           <div class="logoWrap">
             <img src="{logo}" alt="{e['name']}" loading="lazy" decoding="async">
           </div>
-          <div class="name">{e['name']}</div>
+          <div class="name">{e['name տես the text above']}
+          </div>
           <div class="meta">{branche}</div>
         </a>
-        """)
+        """
+        )
 
     return f"""<!doctype html>
 <html lang="de">
@@ -146,7 +166,7 @@ def build_html(entries):
 </head>
 <body>
   <h1>Partner & Unterstützer (alphabetisch)</h1>
-  <!-- <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p> -->
+  <p class="hint">Automatisch aus der Webador-Seite gebaut. Stand: <span id="ts"></span>. Anzahl: {len(entries)}</p>
 
   <div class="grid">
     {''.join(cards)}
@@ -157,24 +177,32 @@ def build_html(entries):
   </footer>
 
   <script>
-    // Timestamp injected by build via meta tag below if needed; fallback to client time
-    document.getElementById('ts').textContent = new Date().toLocaleString('de-AT');
+    const el = document.getElementById('ts');
+    if (el) el.textContent = new Date().toLocaleString('de-AT');
   </script>
 </body>
 </html>
 """
 
+
 def ensure_dist():
     import os
+
     os.makedirs(OUT_DIR, exist_ok=True)
+
 
 def main():
     html = fetch_html(SOURCE_URL)
     entries = extract_entries(html)
 
+    missing = [e["name"] for e in entries if not e.get("branche")]
+    print("Missing branche count:", len(missing))
+    print("First missing:", missing[:20])
+
     if len(entries) < 10:
-        # Safety check so you don't accidentally deploy an empty/broken page
-        raise SystemExit(f"Extraction looks wrong (only {len(entries)} entries). Aborting deploy.")
+        raise SystemExit(
+            f"Extraction looks wrong (only {len(entries)} entries). Aborting deploy."
+        )
 
     ensure_dist()
     out_html = build_html(entries)
@@ -183,6 +211,7 @@ def main():
         f.write(out_html)
 
     print(f"OK: wrote {OUT_FILE} with {len(entries)} entries")
+
 
 if __name__ == "__main__":
     main()
