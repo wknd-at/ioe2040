@@ -27,60 +27,62 @@ def fetch_html(url: str) -> str:
 
 def extract_entries(html: str):
     soup = BeautifulSoup(html, "lxml")
-
-    entries = []
     headings = soup.find_all("h3")
+    entries = []
 
-    for i, h in enumerate(headings):
+    for idx, h in enumerate(headings):
         name = h.get_text(" ", strip=True)
         if not name:
             continue
 
-        # Alles zwischen diesem h3 und dem nächsten h3 als "Block"
-        block_nodes = []
+        # Sammle HTML zwischen diesem h3 und dem nächsten h3, OHNE Nodes zu verschieben
+        parts = []
         node = h.next_sibling
         while node is not None and not (getattr(node, "name", None) == "h3"):
-            block_nodes.append(node)
+            parts.append(str(node))
             node = node.next_sibling
 
-        block_soup = BeautifulSoup("", "lxml")
-        wrapper = block_soup.new_tag("div")
-        for n in block_nodes:
-            # NavigableString oder Tag – beides anhängen
-            try:
-                wrapper.append(n)
-            except Exception:
-                pass
-        block_soup.append(wrapper)
+        block_html = "".join(parts)
+        block = BeautifulSoup(block_html, "lxml")
 
-        # Text aus Block (normalisiert, inkl. NBSP)
-        block_text = wrapper.get_text(" ", strip=True).replace("\xa0", " ")
-        # Branche via Regex aus dem Block-Text
-        branche = None
-        m = re.search(r"\bBranche\s*:\s*(.+?)(?=$)", block_text, flags=re.IGNORECASE)
-        if m:
-            # manchmal hängt noch URL/sonstiges im Text; wir schneiden bei "http" ab
-            val = m.group(1).strip()
-            val = re.split(r"\shttps?://", val, maxsplit=1)[0].strip()
-            branche = val or None
-
-        # Link: erster externer http(s)-Link im Block
-        link = None
-        for a in wrapper.find_all("a", href=True):
-            href = a["href"].strip()
-            if href.startswith("http://") or href.startswith("https://"):
-                link = href
-                break
-
-        # Logo: erstes Bild im Block (falls keines, fallback: img kurz vor h3)
+        # Logo: erstes img im Block, sonst fallback: img vor dem h3
         logo_url = None
-        img = wrapper.find("img")
+        img = block.find("img")
         if img and img.get("src"):
             logo_url = urljoin(BASE, img["src"])
         else:
             prev_img = h.find_previous("img")
             if prev_img and prev_img.get("src"):
                 logo_url = urljoin(BASE, prev_img["src"])
+
+        # Link: erster http(s) Link im Block
+        link = None
+        for a in block.find_all("a", href=True):
+            href = a["href"].strip()
+            if href.startswith("http://") or href.startswith("https://"):
+                link = href
+                break
+
+        # Branche: robust über "Eltern-Element", weil Webador oft <strong>Branche:</strong>Value macht
+        branche = None
+
+        # 1) Suche nach Elementen, die "Branche" enthalten, und nimm deren Zeilentext
+        candidates = []
+        for el in block.find_all(["p", "div", "span", "li"]):
+            t = el.get_text(" ", strip=True).replace("\xa0", " ")
+            if re.search(r"\bBranche\b", t, flags=re.IGNORECASE):
+                candidates.append(t)
+
+        # 2) Extrahiere nach "Branche:" aus dem besten Kandidaten
+        for t in candidates:
+            m = re.search(r"\bBranche\s*:\s*(.+)$", t, flags=re.IGNORECASE)
+            if m:
+                val = m.group(1).strip()
+                # falls danach noch URL/Text dranhängt, abschneiden
+                val = re.split(r"\shttps?://", val, maxsplit=1)[0].strip()
+                if val:
+                    branche = val
+                    break
 
         entries.append({
             "name": name,
@@ -90,7 +92,7 @@ def extract_entries(html: str):
             "sort": normalize_sort_key(name),
         })
 
-    # Dedup
+    # Dedup (Name + url + logo)
     seen = set()
     uniq = []
     for e in entries:
