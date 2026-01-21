@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
-SOURCE_URL = "https://www.initiativeoesterreich2040.at/unsere-unterstuetzer"
+SOURCE_URL = "https://www.initiativeoesterreich2040.at/unsere-unterstuetzer-build"
 BASE = "https://www.initiativeoesterreich2040.at"
 
 OUT_DIR = "dist"
