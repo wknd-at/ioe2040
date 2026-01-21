@@ -289,7 +289,7 @@ footer {{
 
 <div id="ioe2040Root">
   <div class="topbar">
-    <div class="count" id="count"></div>
+    <!--<div class="count" id="count"></div>-->
     <div class="searchWrap">
       <input id="q" type="search" placeholder="Suchen (Name, Branche, URL)…" autocomplete="off">
     </div>
@@ -300,7 +300,7 @@ footer {{
   </div>
 
   <footer>
-    Stand: <span id="ts"></span> · Partner: <strong id="total">{len(entries)}</strong>
+    <!--Stand: <span id="ts"></span> · Partner: <strong id="total">{len(entries)}</strong>-->
   </footer>
 </div>
 
